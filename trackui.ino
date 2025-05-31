@@ -19,8 +19,8 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // Wi-Fi Credentials
-const char* ssid = "Domain Exp";
-const char* password = "ablebody2331";
+const char* ssid = "Honour's S20 FE";
+const char* password = "welo003(";
 
 // BME280
 Adafruit_BME280 bme;
@@ -107,12 +107,12 @@ void setup() {
   // Initialize Preferences
   preferences.begin("iot-device", false);
 
-  isLogging = preferences.putBool("isLogging", false);
-  displayNeedsUpdate = preferences.putBool("displayNeedsUpdate", true);
-  s = preferences.putInt("s", 0);
-  p = preferences.putInt("p", 0);
-  c = preferences.putString("c", "");
-  state = preferences.putString("state", "idle");
+  // isLogging = preferences.putBool("isLogging", false);
+  // displayNeedsUpdate = preferences.putBool("displayNeedsUpdate", true);
+  // s = preferences.putInt("s", 0);
+  // p = preferences.putInt("p", 0);
+  // c = preferences.putString("c", "");
+  // state = preferences.putString("state", "idle");
 
   isLogging = preferences.getBool("isLogging", false);
   displayNeedsUpdate = preferences.getBool("displayNeedsUpdate", true);
@@ -305,73 +305,89 @@ SensorData readSensors() {
 }
 
 void logData(const SensorData& data) {
-  activateSD();
-  logFile = SD.open("/data.json", FILE_READ);
-  if (logFile) {
-    // logFile.print(data.timestamp.timestamp(DateTime::TIMESTAMP_FULL));
-    // logFile.print(',');
-    // logFile.print(data.latitude, 6);
-    // logFile.print(',');
-    // logFile.print(data.longitude, 6);
-    // logFile.print(',');
-    // logFile.print(data.temperature);
-    // logFile.print(',');
-    // logFile.print(data.humidity);
-    // logFile.print(',');
-    // logFile.print(data.pressure);
-    // logFile.print(',');
-    // logFile.print(data.accelX);
-    // logFile.print(',');
-    // logFile.print(data.accelY);
-    // logFile.print(',');
-    // logFile.print(data.accelZ);
-    // logFile.print(',');
-    // logFile.print(data.gyroX);
-    // logFile.print(',');
-    // logFile.print(data.gyroY);
-    // logFile.print(',');
-    // logFile.println(data.gyroZ);
-    // logFile.close();
-
+    activateSD();
+    
+    // First, read existing data
     JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, logFile);
-    logFile.close();
-
-    if (error) {
-      Serial.print("DEcerialisation failed: ");
-      Serial.println(error.c_str());
-      return;
+    File readFile = SD.open("/data.json", FILE_READ);
+    if (readFile) {
+        DeserializationError error = deserializeJson(doc, readFile);
+        readFile.close();
+        
+        if (error) {
+            Serial.print("Deserialization failed: ");
+            Serial.println(error.c_str());
+            // Initialize empty document if reading failed
+            doc.clear();
+            doc["data"] = JsonArray();
+        }
+    } else {
+        // Initialize empty document if file doesn't exist
+        doc["data"] = JsonArray();
     }
 
-    JsonObject log =
-      doc["data"].createNestedObject();
-    log["lat"] = data.latitude;
-    log["long"] = data.longitude;
-    log["temp"] = data.temperature;
-    log["humid"] = data.humidity;
-    log["pressure"] = data.pressure;
-    log["accelX"] = data.accelX;
-    log["accelY"] = data.accelY;
-    log["accelZ"] = data.accelZ;
-    log["gyroX"] = data.gyroX;
-    log["gyroY"] = data.gyroY;
-    log["gyroZ"] = data.gyroZ;
+    // Add new data
+    JsonObject logEntry = doc["data"].createNestedObject();
+    logEntry["product_id"] = p;
+    logEntry["lat"] = data.latitude;
+    logEntry["long"] = data.longitude;
+    logEntry["temp"] = data.temperature;
+    logEntry["humid"] = data.humidity;
+    logEntry["pressure"] = data.pressure;
+    logEntry["accelX"] = data.accelX;
+    logEntry["accelY"] = data.accelY;
+    logEntry["accelZ"] = data.accelZ;
+    logEntry["gyroX"] = data.gyroX;
+    logEntry["gyroY"] = data.gyroY;
+    logEntry["gyroZ"] = data.gyroZ;
 
-    logFile = SD.open("/data.json", FILE_WRITE);
-    if (!logFile) {
-      return;
+      HTTPClient http;
+      http.begin("https://tracui.pxxl.tech/api/logs");
+      http.addHeader("Content-Type", "application/json");
+
+      String jsonData;
+      
+      serializeJson(logEntry, jsonData);
+      Serial.println(p);
+
+      Serial.println(jsonData);
+      int httpCode = http.POST(jsonData);
+      if (httpCode > 0) {
+        String response = http.getString();
+        Serial.println("Raw JSON:");
+        Serial.println(response);
+
+        StaticJsonDocument<200> doc;
+        DeserializationError error = deserializeJson(doc, response);
+
+        Serial.println(httpCode);
+
+        if (!error) {
+          Serial.println("Logged");
+
+        } else {
+          Serial.println("No LOGS");
+
+        }
+      } else {
+        Serial.println("Yello");
+      }
+      http.end();
+
+    // Write back to file - use FILE_WRITE which automatically truncates
+    File writeFile = SD.open("/data.json", FILE_WRITE);
+    if (writeFile) {
+        serializeJsonPretty(doc, writeFile);  // Using pretty print for readability
+        writeFile.close();
+        Serial.println("Data logged successfully");
+    } else {
+        Serial.println("Failed to open file for writing");
+        buzz(400, 300);
     }
-    serializeJson(doc, logFile);
-    logFile.close();
 
-  } else {
-    Serial.println("Failed to write to SD!");
-    buzz(400, 300);
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("SD Write Failed");
-    display.display();
-  }
+
+
+
 }
 
 void updateDisplay(const SensorData& data) {
